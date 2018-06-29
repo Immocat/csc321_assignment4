@@ -42,17 +42,17 @@ def conv(in_channels, out_channels, kernel_size, stride=2, padding=1, batch_norm
 
 
 class DCGenerator(nn.Module):
-    def __init__(self, noise_size, conv_dim):
+    def __init__(self, noise_size, conv_dim, batch_norm=True):
         super(DCGenerator, self).__init__()
 
         ###########################################
         ##   FILL THIS IN: CREATE ARCHITECTURE   ##
         ###########################################
 
-        # self.deconv1 = deconv(...)
-        # self.deconv2 = deconv(...)
-        # self.deconv3 = deconv(...)
-        # self.deconv4 = deconv(...)
+        self.deconv1 = deconv(noise_size  , conv_dim * 4, kernel_size=4, stride=2, padding=0, batch_norm=batch_norm)
+        self.deconv2 = deconv(conv_dim * 4, conv_dim * 2, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm)
+        self.deconv3 = deconv(conv_dim * 2, conv_dim    , kernel_size=4, stride=2, padding=1, batch_norm=batch_norm)
+        self.deconv4 = deconv(conv_dim    , 3           , kernel_size=4, stride=2, padding=1, batch_norm=False)
 
     def forward(self, z):
         """Generates an image given a sample of random noise.
@@ -132,17 +132,19 @@ class DCDiscriminator(nn.Module):
     """Defines the architecture of the discriminator network.
        Note: Both discriminators D_X and D_Y have the same architecture in this assignment.
     """
-    def __init__(self, conv_dim=64):
+    def __init__(self, conv_dim=64, batch_norm=True):
         super(DCDiscriminator, self).__init__()
 
         ###########################################
         ##   FILL THIS IN: CREATE ARCHITECTURE   ##
         ###########################################
+        # H' = 1 + (H + 2 * pad - HH) / stride
+        # W' = 1 + (W + 2 * pad - WW) / stride
 
-        # self.conv1 = conv(...)
-        # self.conv2 = conv(...)
-        # self.conv3 = conv(...)
-        # self.conv4 = conv(...)
+        self.conv1 = conv(3, conv_dim, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm, init_zero_weights=False)
+        self.conv2 = conv(conv_dim, conv_dim*2, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm, init_zero_weights=False)
+        self.conv3 = conv(conv_dim*2, conv_dim*4, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm, init_zero_weights=False)
+        self.conv4 = conv(conv_dim*4, 1, kernel_size=4, stride=2, padding=0, batch_norm=False, init_zero_weights=False)
 
     def forward(self, x):
 

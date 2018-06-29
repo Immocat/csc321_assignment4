@@ -58,14 +58,15 @@ def create_model(opts):
     """Builds the generators and discriminators.
     """
     G = DCGenerator(noise_size=opts.noise_size, conv_dim=opts.conv_dim)
-    D = DCDiscriminator(conv_dim=opts.conv_dim)
+    D = DCDiscriminator(conv_dim=opts.conv_dim, batch_norm=not opts.disable_bn)
 
+    #print_models(G, D)
+
+    #move to device
+    G.to(opts.device) # in-place 
+    D.to(opts.device) # in-place
     print_models(G, D)
-
-    if torch.cuda.is_available():
-        G.cuda()
-        D.cuda()
-        print('Models moved to GPU.')
+    print('Models are at:'+str(opts.device))
 
     return G, D
 
@@ -134,9 +135,9 @@ def training_loop(train_dataloader, opts):
     G, D = create_model(opts)
 
     # Create optimizers for the generators and discriminators
-    g_optimizer = optim.Adam(G.parameters(), opts.lr, [opts.beta1, opts.beta2])
     d_optimizer = optim.Adam(D.parameters(), opts.lr, [opts.beta1, opts.beta2])
-
+    g_optimizer = optim.Adam(G.parameters(), opts.lr, [opts.beta1, opts.beta2])
+    
     # Generate fixed noise for sampling from the generator
     fixed_noise = sample_noise(opts.noise_size)  # batch_size x noise_size x 1 x 1
 
@@ -144,13 +145,22 @@ def training_loop(train_dataloader, opts):
 
     total_train_iters = opts.num_epochs * len(train_dataloader)
 
+    device = opts.device
+    noise_dim = opts.noise_size
+    batch_size = opts.batch_size
+
     for epoch in range(opts.num_epochs):
 
         for batch in train_dataloader:
 
-            real_images, labels = batch
-            real_images, labels = utils.to_var(real_images), utils.to_var(labels).long().squeeze()
-
+            real_images, _ = batch
+            #print(real_images.device)
+            real_images = real_images.to(device)
+            #print(real_images.device)
+            
+            #real_images, labels = utils.to_var(real_images), utils.to_var(labels).long().squeeze()
+            #print(real_images.shape)
+            
             ################################################
             ###         TRAIN THE DISCRIMINATOR         ####
             ################################################
@@ -159,19 +169,22 @@ def training_loop(train_dataloader, opts):
 
             # FILL THIS IN
             # 1. Compute the discriminator loss on real images
-            # D_real_loss = ...
+            D_real_loss = 0.5 * torch.sum((D(real_images) - 1)**2) / batch_size
+            #print(D_real_loss)
 
             # 2. Sample noise
-            # noise = ...
+            noise = 2 * torch.rand(batch_size, noise_dim) - 1
+            noise = noise.view(batch_size, noise_dim, 1, 1).to(device)
+            #print(noise.shape)
 
             # 3. Generate fake images from the noise
-            # fake_images = ...
+            fake_images = G(noise)
 
             # 4. Compute the discriminator loss on the fake images
-            # D_fake_loss = ...
+            D_fake_loss = 0.5 * torch.sum(D(fake_images)**2) / batch_size
 
             # 5. Compute the total discriminator loss
-            # D_total_loss = ...
+            D_total_loss = D_fake_loss + D_real_loss
 
             D_total_loss.backward()
             d_optimizer.step()
@@ -184,13 +197,14 @@ def training_loop(train_dataloader, opts):
 
             # FILL THIS IN
             # 1. Sample noise
-            # noise = ...
+            noise = 2 * torch.rand(batch_size, noise_dim) - 1
+            noise = noise.view(batch_size, noise_dim, 1, 1).to(device)
 
             # 2. Generate fake images from the noise
-            # fake_images = ...
+            fake_images = G(noise)
 
             # 3. Compute the generator loss
-            # G_loss = ...
+            G_loss = torch.sum((D(fake_images) -1)**2)/ batch_size
 
             G_loss.backward()
             g_optimizer.step()
@@ -235,6 +249,7 @@ def create_parser():
     parser.add_argument('--image_size', type=int, default=32, help='The side length N to convert images to NxN.')
     parser.add_argument('--conv_dim', type=int, default=32)
     parser.add_argument('--noise_size', type=int, default=100)
+    parser.add_argument('--disable_bn', action='store_true', help='Disable Batch Normalization(BN)')
 
     # Training hyper-parameters
     parser.add_argument('--num_epochs', type=int, default=40)
@@ -254,6 +269,9 @@ def create_parser():
     parser.add_argument('--sample_every', type=int , default=200)
     parser.add_argument('--checkpoint_every', type=int , default=400)
 
+    # GPU or CPU
+    parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
+
     return parser
 
 
@@ -261,6 +279,11 @@ if __name__ == '__main__':
 
     parser = create_parser()
     opts = parser.parse_args()
+    opts.device = None
+    if not opts.disable_cuda and torch.cuda.is_available():
+        opts.device = torch.device('cuda')
+    else:
+        opts.device = torch.device('cpu')
 
     batch_size = opts.batch_size
 

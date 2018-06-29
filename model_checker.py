@@ -137,7 +137,8 @@ if __name__ == '__main__':
 
     try:
         check_dc_discriminator()
-    except:
+    except Exception as e: 
+        print(e)
         print('Crashed while checking DCDiscriminator. Maybe not implemented yet?')
 
     try:
