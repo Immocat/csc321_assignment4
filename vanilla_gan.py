@@ -147,7 +147,7 @@ def training_loop(train_dataloader, opts):
 
     device = opts.device
     noise_dim = opts.noise_size
-    batch_size = opts.batch_size
+    #batch_size = opts.batch_size
 
     for epoch in range(opts.num_epochs):
 
@@ -170,6 +170,7 @@ def training_loop(train_dataloader, opts):
             # FILL THIS IN
             # 1. Compute the discriminator loss on real images
             D_real_loss = 0.5 * torch.sum((D(real_images) - 1)**2) / batch_size
+            #D_real_loss = 0.5 * torch.sum((D(real_images) - 0.9)**2) / batch_size
             #print(D_real_loss)
 
             # 2. Sample noise
@@ -205,7 +206,7 @@ def training_loop(train_dataloader, opts):
 
             # 3. Compute the generator loss
             G_loss = torch.sum((D(fake_images) -1)**2)/ batch_size
-
+            #G_loss = torch.sum((D(fake_images) -0.9)**2)/ batch_size
             G_loss.backward()
             g_optimizer.step()
 
@@ -271,7 +272,10 @@ def create_parser():
 
     # GPU or CPU
     parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
-
+    # GAN training object:
+    parser.add_argument('--GAN_type', type=str, default='LSGAN', choices=['LSGAN','WGAN'], help='Choose the type of GAN')
+    # optmizer
+    parser.add_argument('--optimizer', type=str, default='Adam', choices=['Adam','RMSProp'], help='Choose the type of Optimizer')
     return parser
 
 
