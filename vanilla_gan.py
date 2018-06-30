@@ -135,9 +135,16 @@ def training_loop(train_dataloader, opts):
     G, D = create_model(opts)
 
     # Create optimizers for the generators and discriminators
-    d_optimizer = optim.Adam(D.parameters(), opts.lr, [opts.beta1, opts.beta2])
-    g_optimizer = optim.Adam(G.parameters(), opts.lr, [opts.beta1, opts.beta2])
-    
+    if opts.optimizer == 'Adam':
+        d_optimizer = optim.Adam(D.parameters(), opts.lr, [opts.beta1, opts.beta2])
+        g_optimizer = optim.Adam(G.parameters(), opts.lr, [opts.beta1, opts.beta2])
+    elif opts.optimizer == 'RMSProp':
+        d_optimizer = optim.RMSprop(D.parameters(), opts.lr)
+        g_optimizer = optim.RMSprop(G.parameters(), opts.lr)
+
+    print(d_optimizer)
+    print(g_optimizer)
+
     # Generate fixed noise for sampling from the generator
     fixed_noise = sample_noise(opts.noise_size)  # batch_size x noise_size x 1 x 1
 
