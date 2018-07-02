@@ -87,7 +87,7 @@ class CycleGenerator(nn.Module):
     """Defines the architecture of the generator network.
        Note: Both generators G_XtoY and G_YtoX have the same architecture in this assignment.
     """
-    def __init__(self, conv_dim=64, init_zero_weights=False):
+    def __init__(self, conv_dim=64, init_zero_weights=False, batch_norm=True):
         super(CycleGenerator, self).__init__()
 
         ###########################################
@@ -95,15 +95,15 @@ class CycleGenerator(nn.Module):
         ###########################################
 
         # 1. Define the encoder part of the generator (that extracts features from the input image)
-        # self.conv1 = conv(...)
-        # self.conv2 = conv(...)
+        self.conv1 = conv(3, conv_dim, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm, init_zero_weights=False)
+        self.conv2 = conv(conv_dim, conv_dim*2, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm, init_zero_weights=False)
 
         # 2. Define the transformation part of the generator
-        # self.resnet_block = ...
+        self.resnet_block = ResnetBlock(conv_dim * 2)
 
         # 3. Define the decoder part of the generator (that builds up the output image from features)
-        # self.deconv1 = deconv(...)
-        # self.deconv2 = deconv(...)
+        self.deconv1 = deconv(conv_dim * 2, conv_dim    , kernel_size=4, stride=2, padding=1, batch_norm=batch_norm)
+        self.deconv2 = deconv(conv_dim    , 3           , kernel_size=4, stride=2, padding=1, batch_norm=False)
 
     def forward(self, x):
         """Generates an image conditioned on an input image.

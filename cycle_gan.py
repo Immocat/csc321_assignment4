@@ -77,8 +77,8 @@ def print_models(G_XtoY, G_YtoX, D_X, D_Y):
 def create_model(opts):
     """Builds the generators and discriminators.
     """
-    G_XtoY = CycleGenerator(conv_dim=opts.g_conv_dim, init_zero_weights=opts.init_zero_weights)
-    G_YtoX = CycleGenerator(conv_dim=opts.g_conv_dim, init_zero_weights=opts.init_zero_weights)
+    G_XtoY = CycleGenerator(conv_dim=opts.g_conv_dim, init_zero_weights=opts.init_zero_weights, batch_norm=not opts.disable_bn)
+    G_YtoX = CycleGenerator(conv_dim=opts.g_conv_dim, init_zero_weights=opts.init_zero_weights, batch_norm=not opts.disable_bn)
     D_X = DCDiscriminator(conv_dim=opts.d_conv_dim)
     D_Y = DCDiscriminator(conv_dim=opts.d_conv_dim)
 
@@ -230,8 +230,13 @@ def training_loop(dataloader_X, dataloader_Y, test_dataloader_X, test_dataloader
         d_optimizer.zero_grad()
 
         # 1. Compute the discriminator losses on real images
-        # D_X_loss = ...
-        # D_Y_loss = ...
+        #print(images_X.size()[0])
+        #print(images_X.size().shape)
+        inv_m = 1 / images_X.size()[0]
+        inv_n = 1 / images_Y.size()[0]
+
+        D_X_loss = torch.sum((D_X(images_X) - 1)**2) * inv_m
+        D_Y_loss = torch.sum((D_Y(images_Y) - 1)**2) * inv_n
 
         d_real_loss = D_X_loss + D_Y_loss
         d_real_loss.backward()
@@ -241,16 +246,16 @@ def training_loop(dataloader_X, dataloader_Y, test_dataloader_X, test_dataloader
         d_optimizer.zero_grad()
 
         # 2. Generate fake images that look like domain X based on real images in domain Y
-        # fake_X = ...
+        fake_X = G_YtoX(images_Y)
 
         # 3. Compute the loss for D_X
-        # D_X_loss = ...
+        D_X_loss = inv_n * torch.sum(D_X(fake_X)**2)
 
         # 4. Generate fake images that look like domain Y based on real images in domain X
-        # fake_Y = ...
+        fake_Y = G_XtoY(images_X)
 
         # 5. Compute the loss for D_Y
-        # D_Y_loss = ...
+        D_Y_loss = inv_m * torch.sum(D_Y(fake_Y)**2)
 
         d_fake_loss = D_X_loss + D_Y_loss
         d_fake_loss.backward()
@@ -269,15 +274,15 @@ def training_loop(dataloader_X, dataloader_Y, test_dataloader_X, test_dataloader
         g_optimizer.zero_grad()
 
         # 1. Generate fake images that look like domain X based on real images in domain Y
-        # fake_X = ...
+        fake_X = G_YtoX(images_Y)
 
         # 2. Compute the generator loss based on domain X
-        # g_loss = ...
+        g_loss = inv_n * torch.sum((D_X(fake_X) - 1)**2)
 
         if opts.use_cycle_consistency_loss:
             reconstructed_Y = G_XtoY(fake_X)
             # 3. Compute the cycle consistency loss (the reconstruction loss)
-            # cycle_consistency_loss = ...
+            cycle_consistency_loss = inv_n * torch.sum((images_Y - reconstructed_Y)**2)
             g_loss += cycle_consistency_loss
 
         g_loss.backward()
@@ -292,15 +297,15 @@ def training_loop(dataloader_X, dataloader_Y, test_dataloader_X, test_dataloader
         g_optimizer.zero_grad()
 
         # 1. Generate fake images that look like domain Y based on real images in domain X
-        # fake_Y = ...
+        fake_Y = G_XtoY(images_X)
 
         # 2. Compute the generator loss based on domain Y
-        # g_loss = ...
+        g_loss = inv_m * torch.sum((D_Y(fake_Y) - 1)**2)
 
         if opts.use_cycle_consistency_loss:
             reconstructed_X = G_YtoX(fake_Y)
             # 3. Compute the cycle consistency loss (the reconstruction loss)
-            # cycle_consistency_loss = ...
+            cycle_consistency_loss = inv_m * torch.sum((images_X - reconstructed_X)**2)
             g_loss += cycle_consistency_loss
 
         g_loss.backward()
@@ -364,6 +369,7 @@ def create_parser():
     parser.add_argument('--d_conv_dim', type=int, default=32)
     parser.add_argument('--use_cycle_consistency_loss', action='store_true', default=False, help='Choose whether to include the cycle consistency term in the loss.')
     parser.add_argument('--init_zero_weights', action='store_true', default=False, help='Choose whether to initialize the generator conv weights to 0 (implements the identity function).')
+    parser.add_argument('--disable_bn', action='store_true', help='Disable Batch Normalization(BN)')
 
     # Training hyper-parameters
     parser.add_argument('--train_iters', type=int, default=600, help='The number of training iterations to run (you can Ctrl-C out earlier if you want).')
