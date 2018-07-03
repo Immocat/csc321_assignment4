@@ -155,3 +155,61 @@ class DCDiscriminator(nn.Module):
         out = self.conv4(out).squeeze()
         out = F.sigmoid(out)
         return out
+
+class WGANGenerator(nn.Module):
+    def __init__(self, noise_size, conv_dim, batch_norm=True):
+        super(WGANGenerator, self).__init__()
+
+        ###########################################
+        ##   FILL THIS IN: CREATE ARCHITECTURE   ##
+        ###########################################
+
+        self.deconv1 = deconv(noise_size  , conv_dim * 4, kernel_size=4, stride=2, padding=0, batch_norm=batch_norm)
+        self.deconv2 = deconv(conv_dim * 4, conv_dim * 2, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm)
+        self.deconv3 = deconv(conv_dim * 2, conv_dim    , kernel_size=4, stride=2, padding=1, batch_norm=batch_norm)
+        self.deconv4 = deconv(conv_dim    , 3           , kernel_size=4, stride=2, padding=1, batch_norm=False)
+
+    def forward(self, z):
+        """Generates an image given a sample of random noise.
+
+            Input
+            -----
+                z: BS x noise_size x 1 x 1   -->  16x100x1x1
+
+            Output
+            ------
+                out: BS x channels x image_width x image_height  -->  16x3x32x32
+        """
+
+        out = F.leaky_relu(self.deconv1(z))
+        out = F.leaky_relu(self.deconv2(out))
+        out = F.leaky_relu(self.deconv3(out))
+        out = F.tanh(self.deconv4(out))
+        return out
+
+class WGANDiscriminator(nn.Module):
+    """Defines the architecture of the discriminator network.
+       Note: Both discriminators D_X and D_Y have the same architecture in this assignment.
+    """
+    def __init__(self, conv_dim=64, batch_norm=True):
+        super(WGANDiscriminator, self).__init__()
+
+        ###########################################
+        ##   FILL THIS IN: CREATE ARCHITECTURE   ##
+        ###########################################
+        # H' = 1 + (H + 2 * pad - HH) / stride
+        # W' = 1 + (W + 2 * pad - WW) / stride
+
+        self.conv1 = conv(3, conv_dim, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm, init_zero_weights=False)
+        self.conv2 = conv(conv_dim, conv_dim*2, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm, init_zero_weights=False)
+        self.conv3 = conv(conv_dim*2, conv_dim*4, kernel_size=4, stride=2, padding=1, batch_norm=batch_norm, init_zero_weights=False)
+        self.conv4 = conv(conv_dim*4, 1, kernel_size=4, stride=2, padding=0, batch_norm=False, init_zero_weights=False)
+
+    def forward(self, x):
+
+        out = F.leaky_relu(self.conv1(x))
+        out = F.leaky_relu(self.conv2(out))
+        out = F.leaky_relu(self.conv3(out))
+
+        out = self.conv4(out).squeeze()
+        return out

@@ -29,7 +29,7 @@ import torch.optim as optim
 import utils
 from data_loader import get_emoji_loader
 from models import DCGenerator, DCDiscriminator
-
+from models import WGANDiscriminator, WGANGenerator
 
 SEED = 11
 
@@ -57,8 +57,12 @@ def print_models(G, D):
 def create_model(opts):
     """Builds the generators and discriminators.
     """
-    G = DCGenerator(noise_size=opts.noise_size, conv_dim=opts.conv_dim)
-    D = DCDiscriminator(conv_dim=opts.conv_dim, batch_norm=not opts.disable_bn)
+    if opts.GAN_type == 'LSGAN':
+        G = DCGenerator(noise_size=opts.noise_size, conv_dim=opts.conv_dim)
+        D = DCDiscriminator(conv_dim=opts.conv_dim, batch_norm=not opts.disable_bn)
+    elif opts.GAN_type == 'WGAN':
+        G = WGANGenerator(noise_size=opts.noise_size, conv_dim=opts.conv_dim)
+        D = WGANDiscriminator(conv_dim=opts.conv_dim, batch_norm=not opts.disable_bn)
 
     #print_models(G, D)
 
@@ -125,7 +129,7 @@ def sample_noise(dim):
     return utils.to_var(torch.rand(batch_size, dim) * 2 - 1).unsqueeze(2).unsqueeze(3)
 
 
-def training_loop(train_dataloader, opts):
+def training_loop_LSGAN(train_dataloader, opts):
     """Runs the training loop.
         * Saves checkpoints every opts.checkpoint_every iterations
         * Saves generated samples every opts.sample_every iterations
@@ -138,7 +142,7 @@ def training_loop(train_dataloader, opts):
     if opts.optimizer == 'Adam':
         d_optimizer = optim.Adam(D.parameters(), opts.lr, [opts.beta1, opts.beta2])
         g_optimizer = optim.Adam(G.parameters(), opts.lr, [opts.beta1, opts.beta2])
-    elif opts.optimizer == 'RMSProp':
+    elif opts.optimizer == 'RMSProp' or opts.GAN_type == 'WGAN':
         d_optimizer = optim.RMSprop(D.parameters(), opts.lr)
         g_optimizer = optim.RMSprop(G.parameters(), opts.lr)
 
@@ -233,6 +237,108 @@ def training_loop(train_dataloader, opts):
 
             iteration += 1
 
+def training_loop_WGAN(train_dataloader, opts):
+    """Runs the training loop.
+        * Saves checkpoints every opts.checkpoint_every iterations
+        * Saves generated samples every opts.sample_every iterations
+    """
+
+    # Create generators and discriminators
+    G, D = create_model(opts)
+
+    # Create optimizers for the generators and discriminators
+    if opts.optimizer == 'Adam':
+        d_optimizer = optim.Adam(D.parameters(), opts.lr, [opts.beta1, opts.beta2])
+        g_optimizer = optim.Adam(G.parameters(), opts.lr, [opts.beta1, opts.beta2])
+    elif opts.optimizer == 'RMSProp' or opts.GAN_type == 'WGAN':
+        d_optimizer = optim.RMSprop(D.parameters(), opts.lr)
+        g_optimizer = optim.RMSprop(G.parameters(), opts.lr)
+
+    print(d_optimizer)
+    print(g_optimizer)
+
+    # Generate fixed noise for sampling from the generator
+    fixed_noise = sample_noise(opts.noise_size)  # batch_size x noise_size x 1 x 1
+
+    iteration = 1
+
+    total_train_iters = opts.num_epochs * len(train_dataloader)
+
+    device = opts.device
+    noise_dim = opts.noise_size
+    clip_value = 0.01
+
+    for epoch in range(opts.num_epochs):
+
+        for batch in train_dataloader:
+
+            real_images, _ = batch
+            #print(real_images.device)
+            real_images = real_images.to(device)
+            #print(real_images.device)
+            
+            #real_images, labels = utils.to_var(real_images), utils.to_var(labels).long().squeeze()
+            #print(real_images.shape)
+            
+            ################################################
+            ###         TRAIN THE DISCRIMINATOR         ####
+            ################################################
+
+            d_optimizer.zero_grad()
+
+            # 2. Sample noise
+            noise = 2 * torch.rand(batch_size, noise_dim) - 1
+            noise = noise.view(batch_size, noise_dim, 1, 1).to(device)
+
+            # 3. Generate fake images from the noise
+            fake_images = G(noise)
+
+            # 5. Compute the total discriminator loss
+            D_total_loss = torch.mean(D(fake_images)) - torch.mean(D(real_images))
+
+            D_total_loss.backward()
+            d_optimizer.step()
+
+            # CLIP WEIGHTS!!!! of Dicriminator
+            for p in D.parameters():
+                p.data.clamp_(-clip_value, clip_value)
+
+            ###########################################
+            ###          TRAIN THE GENERATOR        ###
+            ###########################################
+
+            g_optimizer.zero_grad()
+
+            # FILL THIS IN
+            # 1. Sample noise
+            noise = 2 * torch.rand(batch_size, noise_dim) - 1
+            noise = noise.view(batch_size, noise_dim, 1, 1).to(device)
+
+            # 2. Generate fake images from the noise
+            fake_images = G(noise)
+
+            # 3. Compute the generator loss
+            G_loss = -torch.mean(D(fake_images))
+            #G_loss = torch.sum((D(fake_images) -0.9)**2)/ batch_size
+            G_loss.backward()
+            g_optimizer.step()
+
+
+            # Print the log info
+            with torch.no_grad():
+                if iteration % opts.log_step == 0:
+                    print('Iteration [{:4d}/{:4d}] | D_total_loss: {:6.4f} | G_loss: {:6.4f}'.format(
+                        iteration, total_train_iters, D_total_loss.data[0], G_loss.data[0]))
+
+                # Save the generated samples
+                if iteration % opts.sample_every == 0:
+                    save_samples(G, fixed_noise, iteration, opts)
+
+                # Save the model parameters
+                if iteration % opts.checkpoint_every == 0:
+                    checkpoint(iteration, G, D, opts)
+
+                iteration += 1
 
 def main(opts):
     """Loads the data, creates checkpoint and sample directories, and starts the training loop.
@@ -245,7 +351,10 @@ def main(opts):
     utils.create_dir(opts.checkpoint_dir)
     utils.create_dir(opts.sample_dir)
 
-    training_loop(train_dataloader, opts)
+    if opts.GAN_type == 'LSGAN':
+        training_loop_LSGAN(train_dataloader, opts)
+    elif opts.GAN_type == 'WGAN':
+        training_loop_WGAN(train_dataloader, opts)
 
 
 def create_parser():
