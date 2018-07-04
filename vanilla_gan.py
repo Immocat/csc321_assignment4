@@ -30,7 +30,7 @@ import utils
 from data_loader import get_emoji_loader
 from models import DCGenerator, DCDiscriminator
 from models import WGANDiscriminator, WGANGenerator
-
+from models import WGANGPDiscriminator, WGANGPGenerator
 SEED = 11
 
 # Set the random seed manually for reproducibility.
@@ -63,6 +63,9 @@ def create_model(opts):
     elif opts.GAN_type == 'WGAN':
         G = WGANGenerator(noise_size=opts.noise_size, conv_dim=opts.conv_dim)
         D = WGANDiscriminator(conv_dim=opts.conv_dim, batch_norm=not opts.disable_bn)
+    elif opts.GAN_type == 'WGANGP':
+        G = WGANGPGenerator(noise_size=opts.noise_size, conv_dim=opts.conv_dim)
+        D = WGANGPDiscriminator(conv_dim=opts.conv_dim)
 
     #print_models(G, D)
 
@@ -291,7 +294,7 @@ def training_loop_WGAN(train_dataloader, opts):
             noise = noise.view(batch_size, noise_dim, 1, 1).to(device)
 
             # 3. Generate fake images from the noise
-            fake_images = G(noise)
+            fake_images = G(noise).detach()
 
             # 5. Compute the total discriminator loss
             D_total_loss = torch.mean(D(fake_images)) - torch.mean(D(real_images))
@@ -340,6 +343,123 @@ def training_loop_WGAN(train_dataloader, opts):
 
                 iteration += 1
 
+
+
+def training_loop_WGANGP(train_dataloader, opts):
+    """Runs the training loop.
+        * Saves checkpoints every opts.checkpoint_every iterations
+        * Saves generated samples every opts.sample_every iterations
+    """
+
+    # Create generators and discriminators
+    G, D = create_model(opts)
+
+    # Create optimizers for the generators and discriminators
+    if opts.optimizer == 'Adam':
+        d_optimizer = optim.Adam(D.parameters(), opts.lr, [opts.beta1, opts.beta2])
+        g_optimizer = optim.Adam(G.parameters(), opts.lr, [opts.beta1, opts.beta2])
+    elif opts.optimizer == 'RMSProp':
+        d_optimizer = optim.RMSprop(D.parameters(), opts.lr)
+        g_optimizer = optim.RMSprop(G.parameters(), opts.lr)
+
+    print(d_optimizer)
+    print(g_optimizer)
+
+    # Generate fixed noise for sampling from the generator
+    fixed_noise = sample_noise(opts.noise_size)  # batch_size x noise_size x 1 x 1
+
+    iteration = 1
+
+    total_train_iters = opts.num_epochs * len(train_dataloader)
+
+    device = opts.device
+    noise_dim = opts.noise_size
+    lambda_GP = 10
+
+    for epoch in range(opts.num_epochs):
+
+        for batch in train_dataloader:
+
+            real_images, _ = batch
+            batch_size = real_images.shape[0]
+            #print(real_images.device)
+            real_images = real_images.to(device)
+            #print(real_images.device)
+            
+            #real_images, labels = utils.to_var(real_images), utils.to_var(labels).long().squeeze()
+            #print(real_images.shape)
+            
+            ################################################
+            ###         TRAIN THE DISCRIMINATOR         ####
+            ################################################
+
+            d_optimizer.zero_grad()
+
+            # 2. Sample noise
+            noise = 2 * torch.rand(batch_size, noise_dim) - 1
+            noise = noise.view(batch_size, noise_dim, 1, 1).to(device)
+
+            # 3. Generate fake images from the noise
+            fake_images = G(noise)
+            D_fake_loss = torch.mean(D(fake_images))
+            # 4. Calculate gradient penalty(GP)
+            random_eps = torch.rand(1, device=device)
+            #print(fake_images.shape)
+            #print(real_images.shape)
+            interpolates = (1 - random_eps) * fake_images + random_eps * real_images
+            D_interpolates = D(interpolates)
+            # 5. Compute the total discriminator loss
+            fake = torch.ones(D_interpolates.size(), device=device)
+            #print(fake_images.shape)
+            #print(D_fake_loss.shape)
+            gradients = torch.autograd.grad(
+                outputs=D_interpolates, inputs=interpolates, grad_outputs=fake, create_graph=True, retain_graph=True, only_inputs=True)[0]
+            #print(gradients[0].shape)
+            D_total_loss = D_fake_loss - \
+                torch.mean(D(real_images)) \
+                + lambda_GP * \
+                (gradients.norm(2) - 1)**2
+
+            D_total_loss.backward()
+            d_optimizer.step()
+
+
+            ###########################################
+            ###          TRAIN THE GENERATOR        ###
+            ###########################################
+
+            g_optimizer.zero_grad()
+
+            # FILL THIS IN
+            # 1. Sample noise
+            noise = 2 * torch.rand(batch_size, noise_dim) - 1
+            noise = noise.view(batch_size, noise_dim, 1, 1).to(device)
+
+            # 2. Generate fake images from the noise
+            fake_images = G(noise)
+
+            # 3. Compute the generator loss
+            G_loss = -torch.mean(D(fake_images))
+            #G_loss = torch.sum((D(fake_images) -0.9)**2)/ batch_size
+            G_loss.backward()
+            g_optimizer.step()
+
+
+            # Print the log info
+            with torch.no_grad():
+                if iteration % opts.log_step == 0:
+                    print('Iteration [{:4d}/{:4d}] | D_total_loss: {:6.4f} | G_loss: {:6.4f}'.format(
+                        iteration, total_train_iters, D_total_loss.data[0], G_loss.data[0]))
+
+                # Save the generated samples
+                if iteration % opts.sample_every == 0:
+                    save_samples(G, fixed_noise, iteration, opts)
+
+                # Save the model parameters
+                if iteration % opts.checkpoint_every == 0:
+                    checkpoint(iteration, G, D, opts)
+
+                iteration += 1
 def main(opts):
     """Loads the data, creates checkpoint and sample directories, and starts the training loop.
     """
@@ -355,6 +475,8 @@ def main(opts):
         training_loop_LSGAN(train_dataloader, opts)
     elif opts.GAN_type == 'WGAN':
         training_loop_WGAN(train_dataloader, opts)
+    elif opts.GAN_type == 'WGANGP':
+        training_loop_WGANGP(train_dataloader, opts)
 
 
 def create_parser():
@@ -389,7 +511,7 @@ def create_parser():
     # GPU or CPU
     parser.add_argument('--disable-cuda', action='store_true', help='Disable CUDA')
     # GAN training object:
-    parser.add_argument('--GAN_type', type=str, default='LSGAN', choices=['LSGAN','WGAN'], help='Choose the type of GAN')
+    parser.add_argument('--GAN_type', type=str, default='WGANGP', choices=['LSGAN','WGAN','WGANGP'], help='Choose the type of GAN')
     # optmizer
     parser.add_argument('--optimizer', type=str, default='Adam', choices=['Adam','RMSProp'], help='Choose the type of Optimizer')
     return parser
